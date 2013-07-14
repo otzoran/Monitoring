@@ -1,39 +1,47 @@
 #!/bin/bash
 
-# node.js using PPA (for statsd)
-sudo apt-get install python-software-properties
-sudo apt-add-repository ppa:chris-lea/node.js
-sudo apt-get update
-sudo apt-get install nodejs npm
+[[ $(id -u) == 0 ]] || { echo "root only"; exit 0; }
+
+set -e
+
+# Based on article by Shubhang Mani, 
+# How to Set Up Metric Collection Using Graphite and Statsd on Ubuntu 12.04 LTS 
+# Ori, original script dated to May 15, 2012
+
+# node.js using PPA (for statsd) !! now nodejs is in main
+#apt-get install python-software-properties
+#apt-add-repository ppa:chris-lea/node.js
+#apt-get update
+#apt-get install nodejs npm
 
 # Install git to get statsd
-sudo apt-get install git
+#apt-get install git
 
 # System level dependencies for Graphite
-sudo apt-get install memcached python-dev python-pip sqlite3 libcairo2 \
- libcairo2-dev python-cairo pkg-config
+#apt-get install memcached python-dev python-pip sqlite3 libcairo2 \
+ #libcairo2-dev python-cairo pkg-config
 
 # Get latest pip
-sudo pip install --upgrade pip 
+#pip install --upgrade pip 
 
 # Install carbon and graphite deps 
 cat >> /tmp/graphite_reqs.txt << EOF
-django==1.3
+django
 python-memcached
 django-tagging
 twisted
-whisper==0.9.9
-carbon==0.9.9
-graphite-web==0.9.9
+whisper
+carbon
+graphite-web
 EOF
 
-sudo pip install -r /tmp/graphite_reqs.txt
+#pip install -r /tmp/graphite_reqs.txt
 
 #
 # Configure carbon
 #
 cd /opt/graphite/conf/
-sudo cp carbon.conf.example carbon.conf
+cp carbon.conf.example carbon.conf
 
 # Create storage schema and copy it over
 # Using the sample as provided in the statsd README
@@ -52,18 +60,35 @@ pattern = ^stats\..*
 retentions = 10s:6h,1m:7d,10m:1y
 EOF
 
-sudo cp /tmp/storage-schemas.conf storage-schemas.conf
+cp /tmp/storage-schemas.conf storage-schemas.conf
 
 # Make sure log dir exists for webapp
-sudo mkdir -p /opt/graphite/storage/log/webapp
+mkdir -p /opt/graphite/storage/log/webapp
 
 # Copy over the local settings file and initialize database
 cd /opt/graphite/webapp/graphite/
-sudo cp local_settings.py.example local_settings.py
-sudo python manage.py syncdb  # Follow the prompts, creating a superuser is optional
+#cp local_settings.py.example local_settings.py
+
+# from http://stackoverflow.com/questions/9850581/django-error-when-installing-graphite-settings-databases-is-improperly-configu
+echo "/opt/graphite/webapp/graphite/local_settings.py"
+echo "edit to set:"
+echo "DATABASES and ENGINE"
+echo DATABASES = {
+echo     'default': {
+echo         'NAME': '/opt/graphite/storage/graphite.db',
+echo         'ENGINE': 'django.db.backends.sqlite3',
+echo 
+echo Cont
+read ANS
+#without those settings, abort on this error:
+#ImproperlyConfigured: settings.DATABASES is improperly configured. Please supply the ENGINE value. Check settings documentation for more details.
+
+python manage.py syncdb  # Follow the prompts, creating a superuser is optional
+#django superuser: root 
+#pass ori
 
 # statsd
-cd /opt && sudo git clone git://github.com/etsy/statsd.git
+cd /opt && git clone git://github.com/etsy/statsd.git
 
 # StatsD configuration
 cat >> /tmp/localConfig.js << EOF
@@ -74,6 +99,25 @@ cat >> /tmp/localConfig.js << EOF
 }
 EOF
 
-sudo cp /tmp/localConfig.js /opt/statsd/localConfig.js
+cp /tmp/localConfig.js /opt/statsd/localConfig.js
+
+printf "installation complete, hit enter to cont: "; read ANS
+
+# Run carbon-cache
+set -x
+cd /opt/graphite && ./bin/carbon-cache.py –debug start
+
+# Run graphite-web
+cd /opt/graphite && ./bin/run-graphite-devel-server.py .
+
+# Run statsd: 
+cd /opt/statsd && node ./stats.js ./localConfig.js
+
+# Run the example client (any one will suffice, python client shown here): 
+cd /opt/statsd/examples && python ./python_example.py
+
+
+
+
 
 
